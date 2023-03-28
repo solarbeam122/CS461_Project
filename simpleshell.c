@@ -7,6 +7,11 @@
 #include <fcntl.h>
 #include <sys/errno.h>
 
+//Justus Contreras
+//03/28/2023
+//The purpose of this program is to create a 
+//simple shell that can execute commands and redirect input and output.
+
 #define MAX_LINE 80 /* The maximum length command */
 
 // This function takes a character buffer and parses it into tokens using strtok
