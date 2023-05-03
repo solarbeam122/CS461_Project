@@ -6,12 +6,6 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/errno.h>
-
-//Justus Contreras
-//03/28/2023
-//The purpose of this program is to create a 
-//simple shell that can execute commands and redirect input and output.
-
 #define MAX_LINE 80 /* The maximum length command */
 
 // This function takes a character buffer and parses it into tokens using strtok
@@ -54,68 +48,92 @@ int main() {
                 chdir(args[1]);
             }
         } else {
-            // This is the main process that will spawn a child process to execute the command
+            // This is the main process that will spawn two child processes to execute the commands separated by '|'
             printf("I'm in the main process.\n");
 
-            // Create a child process using fork
-            pid_t pid = fork();
-
-            // If pid > 0, this is the parent process
-            if (pid > 0) {
-                printf("I'm the parent, waiting for the child process.\n");
-                // The parent waits for the child process to complete its execution
-                waitpid(pid, NULL, 0);
-                printf("Parent is done waiting.\n");
-            }
-            // If pid == 0, this is the child process
-            else if (pid == 0) {
-                printf("I'm the child, executing the command.\n");
-
-                int input = -1, output = -1;
-
-                // Loop through the arguments to look for input/output redirection symbols
-                for (int i = 0; i < numArgs; i++) {
-                    // If the argument is '<', set up input redirection
-                    if (strcmp(args[i], "<") == 0) {
-                        args[i] = NULL;
-                        // Open the input file
-                        input = open(args[i + 1], O_RDONLY);
-                        if (input < 0) {
-                            perror("Error opening input file");
-                            exit(1);
-                        }
-                        // Duplicate the file descriptor for input to STDIN_FILENO
-                        dup2(input, STDIN_FILENO);
-                        // Close the original file descriptor
-                        close(input);
+            // Find the pipe symbol '|' in the user's command and split the commands
+            char *cmd1[MAX_LINE / 2 + 1];
+            char *cmd2[MAX_LINE / 2 + 1];
+            int numCmd1 = 0, numCmd2 = 0;
+            int i = 0;
+            while (args[i] != NULL) {
+                if (strcmp(args[i], "|") == 0) {
+                    cmd1[numCmd1] = NULL;
+                    numCmd2 = numArgs - numCmd1 - 1;
+                    for (int j = 0; j < numCmd2; j++) {
+                        cmd2[j] = args[i + j + 1];
                     }
-                    // If the argument is '>', set up output redirection
-                    else if (strcmp(args[i], ">") == 0) {
-                        args[i] = NULL;
-                        // Open the output file
-                        output = open(args[i + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                        // If the output file cannot be opened, print an error message and exit
-                        if (output < 0) {
-                            perror("Error opening output file");
-                            exit(1);
-                        }
-                        // Duplicate the file descriptor for output to STDOUT_FILENO
-                        dup2(output, STDOUT_FILENO);
-                        close(output);
-                    }
+                    break;
+                } else {
+                    cmd1[numCmd1] = args[i];
+                    numCmd1++;
                 }
-                // Execute the command
-                execvp(args[0], args);
+                i++;
+            }
+            cmd1[numCmd1] = NULL;
+            cmd2[numCmd2] = NULL;
+
+                        // Create a pipe to connect the two child processes
+            int fd[2];
+            if (pipe(fd) == -1) {
+                perror("Error creating pipe");
+                exit(1);
+            }
+            // Create the first child process to execute the first command
+            pid_t pid1 = fork();
+            if (pid1 == 0) {
+                printf("I'm the first child, executing the first command.\n");
+
+                // Redirect the output of the first command to the write end of the pipe
+                dup2(fd[1], STDOUT_FILENO);
+                close(fd[0]);
+                close(fd[1]);
+
+                // Execute the first command
+                execvp(cmd1[0], cmd1);
                 // If the execvp function returns, it means that the command was not found
                 perror("Error executing command");
                 exit(1);
-                // If pid < 0, there was an error creating the child process
-            } else {
-                perror("Error creating child process");
+            } else if (pid1 < 0) {
+                perror("Error creating first child process");
                 exit(1);
             }
+
+            // Create the second child process to execute the second command
+            pid_t pid2 = fork();
+            if (pid2 == 0) {
+                printf("I'm the second child, executing the second command.\n");
+
+                // Redirect the input of the second command to the read end of the pipe
+                dup2(fd[0], STDIN_FILENO);
+                close(fd[0]);
+                close(fd[1]);
+
+                // Execute the second command
+                execvp(cmd2[0], cmd2);
+                // If the execvp function returns, it means that the command was not found
+                perror("Error executing command");
+                exit(1);
+            } else if (pid2 < 0) {
+                perror("Error creating second child process");
+                exit(1);
+            }
+
+            // Close the file descriptors used by the parent process
+            close(fd[0]);
+            close(fd[1]);
+
+            // Wait for both child processes to complete their execution
+            waitpid(pid1, NULL, 0);
+            waitpid(pid2, NULL, 0);
+
+            printf("Parent is done waiting.\n");
         }
     }
+
     // Exit the shell
     return 0;
 }
+
+
+           
